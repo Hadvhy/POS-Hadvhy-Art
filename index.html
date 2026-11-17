@@ -89,10 +89,12 @@ table{width:100%;border-collapse:collapse}td,th{padding:6px;border-bottom:1px so
  <label>Teks kotak "PERHATIAN" di nota</label><input id="s_perhatian">
  <label>Ukuran kertas nota</label>
  <select id="s_kertas"><option value="M810">Nota kecil 10x8 cm (model buku)</option><option value="A6L">Nota Kontan A6 (kecil)</option><option value="A5L">Nota Kontan A5</option><option value="58">Struk thermal 58 mm</option><option value="80">Struk thermal 80 mm</option><option value="A4">A4 (printer biasa)</option></select>
- <label>Logo toko (opsional, gambar PNG/JPG)</label><input type="file" id="s_logo" accept="image/*"><img id="logoPrev" style="max-height:60px;margin-top:6px"> <button class="b g" onclick="S.logo='';save();renderSet()">Hapus logo</button>
+ <label>Logo toko (opsional, gambar PNG/JPG)</label><input type="file" id="s_logo" accept="image/*"><img id="logoPrev" style="max-height:60px;margin-top:6px"> <button class="b g" onclick="S.logo='';save();api({action:'saveSet',data:{...S,url:''}});renderSet()">Hapus logo</button>
  <label>URL Web App Google Apps Script</label><input id="s_url" placeholder="https://script.google.com/macros/s/.../exec">
  <br><br><button class="b" onclick="simpanSet()">Simpan Pengaturan</button>
  <button class="b g" onclick="sinkron()">🔄 Muat ulang dari Spreadsheet</button>
+ <button class="b g" onclick="api({action:'saveSet',data:{...S,url:''}})">⬆️ Kirim pengaturan & logo ke Spreadsheet</button>
+ <button class="b g" onclick="linkAkses()">🔗 Salin link akses</button>
 </div></section>
 </main>
 
@@ -100,6 +102,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:6px;border-bottom:1px so
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script>
 /* ====== DEFAULT (bisa diubah di menu Pengaturan) ====== */
+/* TIPS: tempel URL Apps Script di url:'' di bawah agar semua browser/komputer otomatis terhubung ke Spreadsheet */
 const DEF={toko:'HADVHY ART',alamat:'Alamat toko Anda',telp:'08xx-xxxx-xxxx',footer:'Terima kasih sudah berbelanja!',kertas:'A6L',url:'',logo:'',perhatian:'Barang yang sudah dibeli tidak dapat dikembalikan / ditukar.'};
 /* ====== PRODUK CONTOH (dipakai jika spreadsheet masih kosong) ====== */
 const CONTOH=[
@@ -114,6 +117,8 @@ const CONTOH=[
 const H=['kode','nama','kategori','harga','stok'];
 let pel=JSON.parse(localStorage.hc||'[]');
 let S=Object.assign({},DEF,JSON.parse(localStorage.hs||'{}'));
+{const u=new URLSearchParams(location.search).get('u');if(u){S.url=u;localStorage.hs=JSON.stringify(S);history.replaceState(null,'',location.href.split(/[?#]/)[0])}}
+if(!S.url)S.url=DEF.url; // isi DEF.url di atas agar semua browser langsung terhubung
 let produk=JSON.parse(localStorage.hp||'null')||CONTOH.map(a=>Object.fromEntries(H.map((h,i)=>[h,a[i]])));
 let trx=JSON.parse(localStorage.ht||'[]'),cart=[],cat='Semua';
 const $=id=>document.getElementById(id),rp=n=>'Rp '+(+n||0).toLocaleString('id-ID');
@@ -126,11 +131,15 @@ async function api(body){
  try{await fetch(S.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});stat('✅ tersimpan di Spreadsheet')}
  catch(e){stat('⚠️ gagal sinkron (data aman di perangkat)')}}
 async function sinkron(){
- if(!S.url){alert('Isi URL Apps Script dulu.');return}
- stat('⏳ memuat…');
+ if(!S.url){alert('Isi URL Apps Script dulu.');return false}
+ stat('⏳ memuat…');let got=false;
  try{const d=await (await fetch(S.url)).json();
-  if(d.produk&&d.produk.length)produk=d.produk;if(d.pelanggan&&d.pelanggan.length)pel=d.pelanggan;if(d.trx)trx=d.trx.map(t=>({...t,items:JSON.parse(t.items||'[]')}));
-  save();renderAll();stat('✅ data dimuat dari Spreadsheet')}catch(e){stat('⚠️ gagal memuat, cek URL & izin akses')}}
+  if(d.produk&&d.produk.length)produk=d.produk;
+  if(d.pelanggan&&d.pelanggan.length)pel=d.pelanggan;
+  if(d.trx)trx=d.trx.map(t=>({...t,items:JSON.parse(t.items||'[]')}));
+  if(d.pengaturan&&Object.keys(d.pengaturan).length){S={...S,...d.pengaturan,url:S.url};got=true}else{api({action:'saveSet',data:{...S,url:''}})}
+  save();renderAll();stat('✅ data dimuat dari Spreadsheet')}catch(e){stat('⚠️ gagal memuat, cek URL & izin akses')}
+ return got}
 
 /* ===== Tab ===== */
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
@@ -285,8 +294,17 @@ function renderRiwayat(){
 $('s_logo').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
  r.onload=()=>{const im=new Image();im.onload=()=>{const m=300,sc=Math.min(1,m/Math.max(im.width,im.height)),c=document.createElement('canvas');
   c.width=im.width*sc;c.height=im.height*sc;c.getContext('2d').drawImage(im,0,0,c.width,c.height);
-  S.logo=c.toDataURL('image/png');save();renderSet()};im.src=r.result};r.readAsDataURL(f)};
-function simpanSet(){S={logo:S.logo||'',perhatian:s_perhatian.value,toko:s_toko.value,alamat:s_alamat.value,telp:s_telp.value,footer:s_footer.value,kertas:s_kertas.value,url:s_url.value.trim()};save();renderAll();alert('Tersimpan')}
+  S.logo=c.toDataURL('image/png');if(S.logo.length>45000){const c2=document.createElement('canvas');c2.width=c.width;c2.height=c.height;const x2=c2.getContext('2d');x2.fillStyle='#fff';x2.fillRect(0,0,c.width,c.height);x2.drawImage(c,0,0);S.logo=c2.toDataURL('image/jpeg',.7)}save();api({action:'saveSet',data:{...S,url:''}});renderSet()};im.src=r.result};r.readAsDataURL(f)};
+async function simpanSet(){
+ const urlBaru=s_url.value.trim(),ganti=urlBaru!=S.url;
+ S={logo:S.logo||'',perhatian:s_perhatian.value,toko:s_toko.value,alamat:s_alamat.value,telp:s_telp.value,footer:s_footer.value,kertas:s_kertas.value,url:urlBaru};
+ save();
+ if(ganti&&urlBaru&&await sinkron()){alert('Terhubung! Pengaturan toko dimuat dari Spreadsheet.');return}
+ api({action:'saveSet',data:{...S,url:''}});renderAll();alert('Tersimpan')}
+function linkAkses(){
+ if(!S.url)return alert('Isi URL Apps Script dulu.');
+ const l=location.href.split(/[?#]/)[0]+'?u='+encodeURIComponent(S.url),ok=()=>alert('Link disalin. Buka link ini di browser/komputer mana pun, otomatis terhubung ke Spreadsheet. Jangan dibagikan ke orang lain.');
+ (navigator.clipboard?navigator.clipboard.writeText(l).then(ok):Promise.reject()).catch(()=>prompt('Salin link ini:',l))}
 function renderSet(){s_toko.value=S.toko;s_alamat.value=S.alamat;s_telp.value=S.telp;s_footer.value=S.footer;s_kertas.value=S.kertas;s_url.value=S.url;s_perhatian.value=S.perhatian;logoPrev.src=S.logo||'';logoPrev.style.display=S.logo?'':'none'}
 function renderAll(){$('hn').textContent='🖨️ '+S.toko;document.title='POS '+S.toko;renderProds();renderCart();renderPel();renderProduk();renderRiwayat();renderSet()}
 renderAll();if(S.url)sinkron();
